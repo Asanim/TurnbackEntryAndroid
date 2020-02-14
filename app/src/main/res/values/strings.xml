@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">TurnbackEntry</string>
+    <string name="action_settings">Settings</string>
+    <!--Other string resources also defined in this file… -->
+    <string name="feedbacktype1">Praise</string>
+    <string name="feedbacktype2">Gripe</string>
+    <string name="feedbacktype3">Suggestion</string>
+    <string name="feedbacktype4">Bug</string>
+
+    <!-- TODO: Remove or change this placeholder text -->
+    <string name="hello_blank_fragment">Hello blank fragment</string>
+</resources>

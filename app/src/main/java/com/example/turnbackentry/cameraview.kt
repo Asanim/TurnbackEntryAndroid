@@ -1,29 +1,47 @@
 package com.example.turnbackentry
 
+import android.Manifest
+import android.annotation.TargetApi
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import androidx.fragment.app.Fragment
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
 import android.graphics.BitmapFactory
 import android.graphics.Bitmap
+import android.graphics.ImageDecoder
+import android.graphics.Matrix
+import android.media.Image
+import android.media.ImageReader
+import android.os.Build
+import android.util.Log
+import android.util.Size
 import com.google.android.gms.vision.barcode.Barcode
 import com.google.android.gms.vision.barcode.BarcodeDetector
 import android.util.SparseArray
-import android.widget.Button
-import android.widget.ImageView
+import android.view.*
+import android.widget.*
 import com.google.android.gms.vision.Frame
-import android.widget.TextView
+import androidx.camera.core.*
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import com.google.android.material.snackbar.Snackbar
+import com.google.firebase.ml.vision.FirebaseVision
+import com.google.firebase.ml.vision.barcode.FirebaseVisionBarcode
+import com.google.firebase.ml.vision.barcode.FirebaseVisionBarcodeDetectorOptions
+import com.google.firebase.ml.vision.common.FirebaseVisionImage
+import com.google.firebase.ml.vision.common.FirebaseVisionImageMetadata
+import java.io.BufferedOutputStream
+import java.io.File
+import java.util.concurrent.Executors
 
 
 // TODO: Rename parameter arguments, choose names that match
 // the fragment initialization parameters, e.g. ARG_ITEM_NUMBER
 private const val ARG_PARAM1 = "param1"
 private const val ARG_PARAM2 = "param2"
-
+private const val REQUEST_CODE_PERMISSIONS = 10
+private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA)
 /**
  * A simple [Fragment] subclass.
  * Activities that contain this fragment must implement the
@@ -48,38 +66,200 @@ class cameraview : Fragment() {
 
     override fun onCreateView(inflater: LayoutInflater,
                               container: ViewGroup?, savedInstanceState: Bundle?): View? {
-        // Inflate the layout for this fragment
-        var rootview = inflater.inflate(R.layout.fragment_cameraview, container, false)
+        //todo: get from camera
 
+        // Inflate the layout for this fragment
+        rootview = inflater.inflate(R.layout.fragment_cameraview, container, false)
+        viewFinder = rootview.findViewById(R.id.view_finder)
+
+        if (allPermissionsGranted()) {
+            viewFinder.post{startCamera()}
+        } else {
+            requestPermissions(REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS)
+        }
+
+        viewFinder.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            updateTransform()
+        }
+
+        return rootview
+    }
+
+    private val executor = Executors.newSingleThreadExecutor()
+    private lateinit var viewFinder: TextureView
+    private lateinit var rootview: View
+
+    @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+    private fun startCamera () {
+        val previewConfig = PreviewConfig.Builder().apply {
+            setTargetResolution(Size(640, 480))
+        }.build()
+
+        val preview = Preview(previewConfig)
+
+        preview.setOnPreviewOutputUpdateListener {
+            val parent = viewFinder.parent as ViewGroup
+            parent.removeView(viewFinder)
+            parent.addView(viewFinder, 0);
+
+            viewFinder.surfaceTexture = it.surfaceTexture
+            updateTransform()
+        }
+
+        val imageCaptureConfig = ImageCaptureConfig.Builder()
+            .apply {
+                setCaptureMode(ImageCapture.CaptureMode.MIN_LATENCY)
+            }.build()
+
+        val imageCapture = ImageCapture(imageCaptureConfig)
+
+        rootview.findViewById<ImageButton>(R.id.capture_button).setOnClickListener {
+            imageCapture.takePicture(executor,
+                object : ImageCapture.OnImageCapturedListener() {
+                    override fun onError(
+                        imageCaptureError: ImageCapture.ImageCaptureError,
+                        message: String,
+                        exc: Throwable?
+                    ) {
+                        val msg = "Photo capture failed: $message"
+                        Log.e("CameraXApp", msg, exc)
+                        viewFinder.post {
+                            Toast.makeText(viewFinder.context, msg, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+
+                    override fun onCaptureSuccess(image: ImageProxy?, rotationDegrees: Int) {
+
+
+                        if (image != null) {
+                            barcodeDetect(image.image!!, rotationDegrees)
+                        } else {
+                            Toast.makeText(viewFinder.context, "image not found", Toast.LENGTH_SHORT).show()
+                        }
+                        //super.onCaptureSuccess(image, rotationDegrees)
+                    }
+
+
+                })
+        }
+
+
+
+
+        CameraX.bindToLifecycle(this, preview)
+    }
+
+    @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR1)
+    private fun updateTransform() {
+        val matrix = Matrix();
+        val centreX = viewFinder.width / 2f
+        val centrey = viewFinder.height / 2f
+
+        val rotationDegrees = when(viewFinder.display.rotation) {
+            Surface.ROTATION_0 -> 0
+            Surface.ROTATION_90 -> 90
+            Surface.ROTATION_180 -> 180
+            Surface.ROTATION_270 -> 270
+            else -> return
+        }
+        matrix.postRotate(-rotationDegrees.toFloat(), centreX, centrey )
+
+        viewFinder.setTransform(matrix)
+
+    }
+
+    private fun simplebarcodedetect () {
         val txtView = rootview.findViewById(R.id.txtContent) as TextView
         val myImageView = rootview.findViewById<ImageView>(R.id.imgview)
         val myBitmap = BitmapFactory.decodeResource(
             this.resources, R.drawable.index)
-
-        val detector = BarcodeDetector.Builder(activity?.applicationContext)
-            .setBarcodeFormats(Barcode.UPC_A) //Barcode.CODE_128 or Barcode.EAN_13 or Barcode.DATA_MATRIX or Barcode.QR_CODE or
-            .build()
-        if (!detector.isOperational) {
-            txtView.setText("Could not set up the detector!")
-        }
-
         myImageView.setImageBitmap(myBitmap)
+        val options = FirebaseVisionBarcodeDetectorOptions.Builder()
+            .setBarcodeFormats(
+                FirebaseVisionBarcode.FORMAT_UPC_A,
+                FirebaseVisionBarcode.FORMAT_AZTEC)
+            .build()
+        //val imgrotation = FirebaseVisionImageMetadata.ROTATION_0;
+        //image must be upright!
+        val image = FirebaseVisionImage.fromBitmap(myBitmap); //fromMediaImage(myBitmap, imgrotation)
+        val detector = FirebaseVision.getInstance().visionBarcodeDetector;
+        val result = detector.detectInImage(image)
+            .addOnSuccessListener { barcodes ->
+                var stringvalue = "" //= emptyArray<String>();
 
-        val bprocess = rootview.findViewById<Button>(R.id.bprocess);
+                var index = 0;
+                for (barcode in barcodes) {
+                    stringvalue = stringvalue + " " + barcode.rawValue.toString()
+                    index++
+                }
+                //val rawValue = barcode.rawValue.
+                txtView.text = stringvalue.toString();
+                //todo: input field with value
 
-        bprocess.setOnClickListener { view ->
-            val frame = Frame.Builder().setBitmap(myBitmap).build()
-            val barcodes = detector.detect(frame)
+            }
+            .addOnFailureListener { exception ->
+            }
+    }
 
-            val thisCode = barcodes.size() //.valueAt(0)
-            //txtView.text = "scanning..."
-            Snackbar.make(view , "scanning...", Snackbar.LENGTH_LONG)
-                .setAction("Action", null).show()
 
-            txtView.text = thisCode.toString() //.rawValue
+    private fun degreesToFirebaseRotation(degrees: Int): Int = when(degrees) {
+        0 -> FirebaseVisionImageMetadata.ROTATION_0
+        90 -> FirebaseVisionImageMetadata.ROTATION_90
+        180 -> FirebaseVisionImageMetadata.ROTATION_180
+        270 -> FirebaseVisionImageMetadata.ROTATION_270
+        else -> throw Exception("Rotation must be 0, 90, 180, or 270.")
+    }
 
+    private fun barcodeDetect (image :Image, rotation :Int) {
+
+        val txtView = rootview.findViewById(R.id.txtContent) as TextView
+
+        val options = FirebaseVisionBarcodeDetectorOptions.Builder()
+            .setBarcodeFormats(
+                FirebaseVisionBarcode.FORMAT_UPC_A,
+                FirebaseVisionBarcode.FORMAT_AZTEC)
+            .build()
+
+        val imgrotation = FirebaseVisionImageMetadata.ROTATION_0;
+
+        val image = FirebaseVisionImage.fromMediaImage(image, degreesToFirebaseRotation(rotation))
+
+        val detector = FirebaseVision.getInstance().visionBarcodeDetector;
+        val result = detector.detectInImage(image)
+            .addOnSuccessListener { barcodes ->
+                var stringvalue = "" //= emptyArray<String>();
+
+                var index = 0;
+                for (barcode in barcodes) {
+                    stringvalue = stringvalue + " " + barcode.rawValue.toString()
+                    index++
+                }
+                //val rawValue = barcode.rawValue.
+                txtView.text = stringvalue.toString();
+                //todo: input field with value
+
+            }
+            .addOnFailureListener { exception ->
+            }
+
+    }
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        if (requestCode == REQUEST_CODE_PERMISSIONS) {
+            if (allPermissionsGranted()) {
+                viewFinder.post { startCamera() }
+            } else {
+                Toast.makeText(context,
+                    "Permissions not granted by the user.",
+                    Toast.LENGTH_SHORT).show()
+            }
         }
-        return rootview
+    }
+
+    //used viewfinder context...
+    private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
+        ContextCompat.checkSelfPermission(
+            viewFinder.context , it) == PackageManager.PERMISSION_GRANTED
     }
 
     // TODO: Rename method, update argument and hook method into UI event

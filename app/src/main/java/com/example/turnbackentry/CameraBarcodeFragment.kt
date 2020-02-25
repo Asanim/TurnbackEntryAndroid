@@ -41,19 +41,37 @@ import java.util.concurrent.Executors
 private const val ARG_PARAM1 = "param1"
 private const val ARG_PARAM2 = "param2"
 private const val REQUEST_CODE_PERMISSIONS = 10
+private const val TAG = "Camera View"
 private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA)
+public var result = "";
 /**
  * A simple [Fragment] subclass.
  * Activities that contain this fragment must implement the
- * [cameraview.OnFragmentInteractionListener] interface
+ * [cameraview.OnFragmentInteractionListener] interfvar ace
  * to handle interaction events.
  * Use the [cameraview.newInstance] factory method to
  * create an instance of this fragment.
  */
 class cameraview : Fragment() {
+    /*
+    internal var callback: OnBarcodeResult
+
+    fun setBarcodeResultListener(callback: OnBarcodeResult) {
+        this.callback = callback
+    }
+    */
+
+    var orderlistener : OnBarcodeResultListener? = null
+
+    interface OnBarcodeResultListener {
+        fun onBarcodeResult(barcode: String)
+    }
+
+
     // TODO: Rename and change types of parameters
     private var param1: String? = null
     private var param2: String? = null
+
     private var listener: OnFragmentInteractionListener? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -67,6 +85,10 @@ class cameraview : Fragment() {
     override fun onCreateView(inflater: LayoutInflater,
                               container: ViewGroup?, savedInstanceState: Bundle?): View? {
         //todo: get from camera
+        Log.d("camera frag", "sending result...")
+
+        //
+        // ("barcode result test")
 
         // Inflate the layout for this fragment
         rootview = inflater.inflate(R.layout.fragment_cameraview, container, false)
@@ -82,6 +104,12 @@ class cameraview : Fragment() {
             updateTransform()
         }
 
+
+        rootview.findViewById<Button>(R.id.bprocess).setOnClickListener {
+            //Toast.makeText(context, TAG, "process clicked", Toast.LENGTH_LONG).show()/
+            Toast.makeText(viewFinder.context, "process clicked", Toast.LENGTH_SHORT).show()
+             simplebarcodedetect(viewFinder.bitmap);
+        }
         return rootview
     }
 
@@ -114,7 +142,9 @@ class cameraview : Fragment() {
         val imageCapture = ImageCapture(imageCaptureConfig)
 
         rootview.findViewById<ImageButton>(R.id.capture_button).setOnClickListener {
-            imageCapture.takePicture(executor,
+
+            imageCapture
+                .takePicture(executor,
                 object : ImageCapture.OnImageCapturedListener() {
                     override fun onError(
                         imageCaptureError: ImageCapture.ImageCaptureError,
@@ -129,17 +159,14 @@ class cameraview : Fragment() {
                     }
 
                     override fun onCaptureSuccess(image: ImageProxy?, rotationDegrees: Int) {
-
-
+                        Log.e("CameraXApp", "Capture success")
                         if (image != null) {
                             barcodeDetect(image.image!!, rotationDegrees)
                         } else {
                             Toast.makeText(viewFinder.context, "image not found", Toast.LENGTH_SHORT).show()
                         }
-                        //super.onCaptureSuccess(image, rotationDegrees)
+                        super.onCaptureSuccess(image, rotationDegrees)
                     }
-
-
                 })
         }
 
@@ -168,16 +195,14 @@ class cameraview : Fragment() {
 
     }
 
-    private fun simplebarcodedetect () {
+    private fun simplebarcodedetect (myBitmap: Bitmap) {
         val txtView = rootview.findViewById(R.id.txtContent) as TextView
-        val myImageView = rootview.findViewById<ImageView>(R.id.imgview)
-        val myBitmap = BitmapFactory.decodeResource(
-            this.resources, R.drawable.index)
-        myImageView.setImageBitmap(myBitmap)
+        //val myImageView = rootview.findViewById<ImageView>(R.id.imgview)
+        //val myBitmap = BitmapFactory.decodeResource( this.resources, R.drawable.index)
+        //myImageView.setImageBitmap(myBitmap)
         val options = FirebaseVisionBarcodeDetectorOptions.Builder()
             .setBarcodeFormats(
-                FirebaseVisionBarcode.FORMAT_UPC_A,
-                FirebaseVisionBarcode.FORMAT_AZTEC)
+                FirebaseVisionBarcode.FORMAT_ALL_FORMATS)
             .build()
         //val imgrotation = FirebaseVisionImageMetadata.ROTATION_0;
         //image must be upright!
@@ -193,7 +218,11 @@ class cameraview : Fragment() {
                     index++
                 }
                 //val rawValue = barcode.rawValue.
-                txtView.text = stringvalue.toString();
+                txtView.text = stringvalue.toString()
+                result = stringvalue.toString()
+                //orderval = stringvalue.toString()
+
+                orderlistener?.onBarcodeResult(result)
                 //todo: input field with value
 
             }
@@ -215,9 +244,7 @@ class cameraview : Fragment() {
         val txtView = rootview.findViewById(R.id.txtContent) as TextView
 
         val options = FirebaseVisionBarcodeDetectorOptions.Builder()
-            .setBarcodeFormats(
-                FirebaseVisionBarcode.FORMAT_UPC_A,
-                FirebaseVisionBarcode.FORMAT_AZTEC)
+            .setBarcodeFormats(FirebaseVisionBarcode.FORMAT_ALL_FORMATS)
             .build()
 
         val imgrotation = FirebaseVisionImageMetadata.ROTATION_0;
@@ -230,9 +257,13 @@ class cameraview : Fragment() {
                 var stringvalue = "" //= emptyArray<String>();
 
                 var index = 0;
-                for (barcode in barcodes) {
-                    stringvalue = stringvalue + " " + barcode.rawValue.toString()
-                    index++
+                if (barcodes != null) {
+                    for (barcode in barcodes) {
+                        stringvalue = stringvalue + " " + barcode.rawValue.toString()
+                        index++
+                    }
+                } else {
+                    Toast.makeText(context, "Barcode not detected", Toast.LENGTH_LONG)
                 }
                 //val rawValue = barcode.rawValue.
                 txtView.text = stringvalue.toString();
@@ -262,17 +293,14 @@ class cameraview : Fragment() {
             viewFinder.context , it) == PackageManager.PERMISSION_GRANTED
     }
 
-    // TODO: Rename method, update argument and hook method into UI event
-    fun onButtonPressed(uri: Uri) {
-        listener?.onFragmentInteraction(uri)
-    }
-
     override fun onAttach(context: Context) {
         super.onAttach(context)
-        if (context is OnFragmentInteractionListener) {
-            listener = context
+
+        if (context is OnBarcodeResultListener) {
+            orderlistener = context
+
         } else {
-            //throw RuntimeException(context.toString() + " must implement OnFragmentInteractionListener")
+            throw RuntimeException(context.toString() + " must implement OnBarcodeResultListener")
         }
     }
 

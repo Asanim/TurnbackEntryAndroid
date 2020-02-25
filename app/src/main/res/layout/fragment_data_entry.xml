@@ -56,6 +56,16 @@
         android:hint="Description"
         android:inputType="textLongMessage|textMultiLine|number|textCapSentences" />
 
+    <EditText
+        android:id="@+id/xurl"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="10sp"
+        android:ems="10"
+        android:hint="url"
+        android:inputType="textUri|textWebEditText"
+        android:text="http://192.168.20.19:8000/forms/turnback" />
+
     <Spinner
         android:id="@+id/SpinnerFeedbackType"
         android:layout_height="wrap_content"
@@ -70,6 +80,15 @@
         android:layout_gravity="center"
         android:background="@color/colorPrimary"
         android:text="Submit"
+        android:textColor="@android:color/white" />
+
+    <Button
+        android:id="@+id/test"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@color/colorPrimary"
+        android:text="Test"
         android:textColor="@android:color/white" />
 
 </LinearLayout>
